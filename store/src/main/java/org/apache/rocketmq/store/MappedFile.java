@@ -48,9 +48,12 @@ public class MappedFile extends ReferenceResource {
     private static final AtomicLong TOTAL_MAPPED_VIRTUAL_MEMORY = new AtomicLong(0);
 
     private static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
+    //写指针（相对位置）：使用暂存区时，表示的是写入到暂存区中的数据的位点
     protected final AtomicInteger wrotePosition = new AtomicInteger(0);
     //ADD BY ChenYang
+    //提交指针（相对位置）：使用暂存区时，表示的是暂存区中提交到MappedByteBuffer中的数据的位点
     protected final AtomicInteger committedPosition = new AtomicInteger(0);
+    //刷写到磁盘指针（相对位置），指针前的数据都已持久化
     private final AtomicInteger flushedPosition = new AtomicInteger(0);
     protected int fileSize;
     protected FileChannel fileChannel;
@@ -58,12 +61,16 @@ public class MappedFile extends ReferenceResource {
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
      */
     protected ByteBuffer writeBuffer = null;
+    //堆内存池
     protected TransientStorePool transientStorePool = null;
     private String fileName;
+    //文件初始字节偏移量，相对于所有文件,物理偏移量
     private long fileFromOffset;
+    //物理文件
     private File file;
+    //物理文件对应的内存映射buffer
     private MappedByteBuffer mappedByteBuffer;
-    private volatile long storeTimestamp = 0;
+    private volatile long storeTimestamp = 0;//最近append到内存的消息的storeTimestamp
     private boolean firstCreateInQueue = false;
 
     public MappedFile() {
@@ -160,7 +167,13 @@ public class MappedFile extends ReferenceResource {
         ensureDirOK(this.file.getParent());
 
         try {
+            //RandomAccessFile 支持读、写，支持随机访问
             this.fileChannel = new RandomAccessFile(this.file, "rw").getChannel();
+            //mmap：内存映射，将文件的指定范围映射到程序的地址空间中，映射部分使用字节缓冲区的一个子类MappedByteBuffe 的对象表示，只要对映射字节缓冲区进行操作就能够达到操作文件的效果
+            //请您必定要注意直到此刻为该文件分配的映射空间都是虚拟内存，并没有真的关联物理内存，当程序需求而物理内存又没有分配的时分则会触发一个Page Fault交由内核处理
+            //个人理解：fileChannel.map时，将磁盘文件与用户态中的一段虚拟内存地址空间进行映射，此时并没有真正的分配物理内存，使用该虚拟地址空间时，会发生缺页异常，从而真正分配与虚拟地址空间对于的物理内存
+            //内存映射相当于把文件映射到一块共享的内存，这个内存可以被用户地址空间和内核地址空间共享访问，所以减少了内核与用户之间的copy
+            //参考：https://linux-kernel-labs.github.io/refs/heads/master/labs/memory_mapping.html
             this.mappedByteBuffer = this.fileChannel.map(MapMode.READ_WRITE, 0, fileSize);
             TOTAL_MAPPED_VIRTUAL_MEMORY.addAndGet(fileSize);
             TOTAL_MAPPED_FILES.incrementAndGet();
@@ -205,6 +218,7 @@ public class MappedFile extends ReferenceResource {
         int currentPos = this.wrotePosition.get();
 
         if (currentPos < this.fileSize) {
+            //如果有writeBuffer先写writeBuffer（开启暂存区），再写mappedByteBuffer，否则直接写mappedByteBuffer
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
             byteBuffer.position(currentPos);
             AppendMessageResult result = null;
@@ -277,6 +291,7 @@ public class MappedFile extends ReferenceResource {
 
                 try {
                     //We only append data to fileChannel or mappedByteBuffer, never both.
+                    //fileChannel.force与mappedByteBuffer.force区别？？
                     if (writeBuffer != null || this.fileChannel.position() != 0) {
                         this.fileChannel.force(false);
                     } else {
@@ -296,13 +311,19 @@ public class MappedFile extends ReferenceResource {
         return this.getFlushedPosition();
     }
 
+
+    /**
+     * commit操作的主体是writeBuffer,作用就是将writeBuffer中的数据复制到FileChannel
+     * @param commitLeastPages 至少需要提交的页数
+     * @return
+     */
     public int commit(final int commitLeastPages) {
         if (writeBuffer == null) {
             //no need to commit data to file channel, so just regard wrotePosition as committedPosition.
             return this.wrotePosition.get();
         }
         if (this.isAbleToCommit(commitLeastPages)) {
-            if (this.hold()) {
+            if (this.hold()) {//？？
                 commit0(commitLeastPages);
                 this.release();
             } else {
@@ -329,6 +350,7 @@ public class MappedFile extends ReferenceResource {
                 byteBuffer.position(lastCommittedPosition);
                 byteBuffer.limit(writePos);
                 this.fileChannel.position(lastCommittedPosition);
+                //将writeBuffer中数据写到fileChannel??为什么不是将writeBuffer写到mappedByteBuffer？？
                 this.fileChannel.write(byteBuffer);
                 this.committedPosition.set(writePos);
             } catch (Throwable e) {
@@ -356,15 +378,16 @@ public class MappedFile extends ReferenceResource {
         int flush = this.committedPosition.get();
         int write = this.wrotePosition.get();
 
-        if (this.isFull()) {
+        if (this.isFull()) {//写入的数据达到文件大小，进行提交
             return true;
         }
 
         if (commitLeastPages > 0) {
+            //脏页数是否大于最少提交页数，如果大于，进行提交
             return ((write / OS_PAGE_SIZE) - (flush / OS_PAGE_SIZE)) >= commitLeastPages;
         }
 
-        return write > flush;
+        return write > flush;//不足1页也提交
     }
 
     public int getFlushedPosition() {
@@ -402,7 +425,7 @@ public class MappedFile extends ReferenceResource {
     }
 
     public SelectMappedBufferResult selectMappedBuffer(int pos) {
-        int readPosition = getReadPosition();
+        int readPosition = getReadPosition();//获取此文件可读偏移量
         if (pos < readPosition && pos >= 0) {
             if (this.hold()) {
                 ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
@@ -484,15 +507,22 @@ public class MappedFile extends ReferenceResource {
         this.committedPosition.set(pos);
     }
 
-    public void warmMappedFile(FlushDiskType type, int pages) {
+    /**
+     * 文件预热：直接将缺页中止提早至初始化阶段，后续就不会由于频频中止导致功能下降
+     * @param type
+     * @param pages
+     */
+    public void warmMappedFile(FlushDiskType type, int pages/*4K*/) {
         long beginTime = System.currentTimeMillis();
         ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
         int flush = 0;
         long time = System.currentTimeMillis();
         for (int i = 0, j = 0; i < this.fileSize; i += MappedFile.OS_PAGE_SIZE, j++) {
+            //每隔4k（pageCache）填充一个0？？实现文件预热
             byteBuffer.put(i, (byte) 0);
             // force flush when flush disk type is sync
             if (type == FlushDiskType.SYNC_FLUSH) {
+                //4K的n次方执行??
                 if ((i / OS_PAGE_SIZE) - (flush / OS_PAGE_SIZE) >= pages) {
                     flush = i;
                     mappedByteBuffer.force();
@@ -500,10 +530,13 @@ public class MappedFile extends ReferenceResource {
             }
 
             // prevent gc
+            //prevent long time gc。
             if (j % 1000 == 0) {
                 log.info("j={}, costTime={}", j, System.currentTimeMillis() - time);
                 time = System.currentTimeMillis();
                 try {
+                    //每隔1000次(4M)执行sleep？？java GC需要等待线程到达安全点，调用sleep方法的线程会进入Safepoint，从而加快GC频率，避免长时间的GC
+                    //同时，sleep还会释放CPU且不考虑优先级，让其他线程执行
                     Thread.sleep(0);
                 } catch (InterruptedException e) {
                     log.error("Interrupted", e);
@@ -519,7 +552,10 @@ public class MappedFile extends ReferenceResource {
         }
         log.info("mapped file warm-up done. mappedFile={}, costTime={}", this.getFileName(),
             System.currentTimeMillis() - beginTime);
-
+        /**
+         * 内存锁定，防止内存交换导致缺页（内存-》磁盘）
+         * 操作系统底层存在内存置换,当其他进程所需内存不足时,可能存在swap交换当前内存到硬盘,mlock锁住当前内存,不允许操作系统置换,提高append消息性能
+         */
         this.mlock();
     }
 
@@ -552,11 +588,14 @@ public class MappedFile extends ReferenceResource {
         final long address = ((DirectBuffer) (this.mappedByteBuffer)).address();
         Pointer pointer = new Pointer(address);
         {
+            //将一块虚拟内存区域锁进物理内存，从而防止它被交换出去
             int ret = LibC.INSTANCE.mlock(pointer, new NativeLong(this.fileSize));
             log.info("mlock {} {} {} ret = {} time consuming = {}", address, this.fileName, this.fileSize, ret, System.currentTimeMillis() - beginTime);
         }
 
         {
+            //通过通知内核调用进程对起始地址为addr长度为length字节的范围之内分页的可能使用情况来提升应用程序的性能
+            //MADV_WILLNEDD：预先读取这个区域中的分页以备将来的访问之需
             int ret = LibC.INSTANCE.madvise(pointer, new NativeLong(this.fileSize), LibC.MADV_WILLNEED);
             log.info("madvise {} {} {} ret = {} time consuming = {}", address, this.fileName, this.fileSize, ret, System.currentTimeMillis() - beginTime);
         }

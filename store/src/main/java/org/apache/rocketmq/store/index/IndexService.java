@@ -67,7 +67,7 @@ public class IndexService {
 
                     if (!lastExitOK) {
                         if (f.getEndTimestamp() > this.defaultMessageStore.getStoreCheckpoint()
-                            .getIndexMsgTimestamp()) {
+                            .getIndexMsgTimestamp()) {//如果上次异常退出，且indexFile最大消息时间大于上次刷盘时间，删除改indexFile
                             f.destroy(0);
                             continue;
                         }

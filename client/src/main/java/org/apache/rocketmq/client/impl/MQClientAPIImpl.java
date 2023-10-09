@@ -945,9 +945,9 @@ public class MQClientAPIImpl {
         requestHeader.setGroup(consumerGroup);
         requestHeader.setOriginTopic(msg.getTopic());
         requestHeader.setOffset(msg.getCommitLogOffset());
-        requestHeader.setDelayLevel(delayLevel);
+        requestHeader.setDelayLevel(delayLevel);//延迟级别
         requestHeader.setOriginMsgId(msg.getMsgId());
-        requestHeader.setMaxReconsumeTimes(maxConsumeRetryTimes);
+        requestHeader.setMaxReconsumeTimes(maxConsumeRetryTimes);//最大重试次数，默认16
 
         RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr),
             request, timeoutMillis);

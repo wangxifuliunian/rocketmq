@@ -19,14 +19,19 @@ package org.apache.rocketmq.common.subscription;
 
 import org.apache.rocketmq.common.MixAll;
 
-public class SubscriptionGroupConfig {
+/**
+ * 消费组配置信息
+ * 默认情况下，BrokerConfig.autoCreateSubscriptionGroup默认为true ，表示在第一次使用消费组配置信息时如果不存在，则使用上述默认值自动创建一个，
+ * 如果为 false ，则只能通过客户端命令mqadmin updateSubGroup创建后修改相关关参数
+ */
+public class SubscriptionGroupConfig {//${ROCKET_HOME}/store/config/subscriptionGroup.json
 
-    private String groupName;
+    private String groupName;//消费组名
 
-    private boolean consumeEnable = true;
-    private boolean consumeFromMinEnable = true;
+    private boolean consumeEnable = true;//是否支持消费
+    private boolean consumeFromMinEnable = true;//是否支持从最小偏移量开始消费
 
-    private boolean consumeBroadcastEnable = true;
+    private boolean consumeBroadcastEnable = true;//是否支持广播
 
     private int retryQueueNums = 1;
 
@@ -34,7 +39,7 @@ public class SubscriptionGroupConfig {
 
     private long brokerId = MixAll.MASTER_ID;
 
-    private long whichBrokerWhenConsumeSlowly = 1;
+    private long whichBrokerWhenConsumeSlowly = 1;//当消费慢时，从哪个broker开始消费
 
     private boolean notifyConsumerIdsChangedEnable = true;
 

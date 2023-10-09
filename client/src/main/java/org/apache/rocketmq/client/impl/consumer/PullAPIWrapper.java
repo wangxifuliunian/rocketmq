@@ -70,18 +70,19 @@ public class PullAPIWrapper {
     public PullResult processPullResult(final MessageQueue mq, final PullResult pullResult,
         final SubscriptionData subscriptionData) {
         PullResultExt pullResultExt = (PullResultExt) pullResult;
-
+        //更新下次拉取的brokerId
         this.updatePullFromWhichNode(mq, pullResultExt.getSuggestWhichBrokerId());
         if (PullStatus.FOUND == pullResult.getPullStatus()) {
+            //如果拉取到消息，解码消息
             ByteBuffer byteBuffer = ByteBuffer.wrap(pullResultExt.getMessageBinary());
             List<MessageExt> msgList = MessageDecoder.decodes(byteBuffer);
-
+            //过滤消息
             List<MessageExt> msgListFilterAgain = msgList;
             if (!subscriptionData.getTagsSet().isEmpty() && !subscriptionData.isClassFilterMode()) {
                 msgListFilterAgain = new ArrayList<MessageExt>(msgList.size());
                 for (MessageExt msg : msgList) {
                     if (msg.getTags() != null) {
-                        if (subscriptionData.getTagsSet().contains(msg.getTags())) {
+                        if (subscriptionData.getTagsSet().contains(msg.getTags())) {//tag过滤
                             msgListFilterAgain.add(msg);
                         }
                     }
@@ -136,19 +137,20 @@ public class PullAPIWrapper {
     }
 
     public PullResult pullKernelImpl(
-        final MessageQueue mq,
-        final String subExpression,
-        final String expressionType,
+        final MessageQueue mq,//从哪个队列拉取消息
+        final String subExpression,//消息过滤表达式
+        final String expressionType,//过滤表达式类型；TAG、SQL92
         final long subVersion,
-        final long offset,
-        final int maxNums,
-        final int sysFlag,
-        final long commitOffset,
-        final long brokerSuspendMaxTimeMillis,
-        final long timeoutMillis,
-        final CommunicationMode communicationMode,
-        final PullCallback pullCallback
+        final long offset,//本次消息拉取偏移量
+        final int maxNums,//本次拉取最大条数，默认32条
+        final int sysFlag,//拉取系统标识
+        final long commitOffset,//当前MessageQueue在消费端内存中的消费进度
+        final long brokerSuspendMaxTimeMillis,//消息拉取过程中运行broker挂起时间，默认15s
+        final long timeoutMillis,//消息拉取超时时间
+        final CommunicationMode communicationMode,//拉取模式，默认为异步拉取
+        final PullCallback pullCallback//拉取消息后的回调方法
     ) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+        //根据brokerName、BrokerId从MQClientlnstance中获取 Broker 地址
         FindBrokerResult findBrokerResult =
             this.mQClientFactory.findBrokerAddressInSubscribe(mq.getBrokerName(),
                 this.recalculatePullFromWhichNode(mq), false);
@@ -171,7 +173,7 @@ public class PullAPIWrapper {
             int sysFlagInner = sysFlag;
 
             if (findBrokerResult.isSlave()) {
-                sysFlagInner = PullSysFlag.clearCommitOffsetFlag(sysFlagInner);
+                sysFlagInner = PullSysFlag.clearCommitOffsetFlag(sysFlagInner);//如果是从节点，清除sysFlagInner中的FLAG_COMMIT_OFFSET标识？？为啥
             }
 
             PullMessageRequestHeader requestHeader = new PullMessageRequestHeader();
@@ -187,11 +189,12 @@ public class PullAPIWrapper {
             requestHeader.setSubVersion(subVersion);
             requestHeader.setExpressionType(expressionType);
 
+            //如果消息过滤模式为类过滤， 需要根据主题名称、 broker地址找到注册在Broke上的FilterServer 地址，从FilterServer上拉取消息，否则从Broker 上拉取消息
             String brokerAddr = findBrokerResult.getBrokerAddr();
             if (PullSysFlag.hasClassFilterFlag(sysFlagInner)) {
                 brokerAddr = computPullFromWhichFilterServer(mq.getTopic(), brokerAddr);
             }
-
+            //发送请求到broker
             PullResult pullResult = this.mQClientFactory.getMQClientAPIImpl().pullMessage(
                 brokerAddr,
                 requestHeader,

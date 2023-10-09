@@ -27,13 +27,17 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+//记录Commitlog、ConsumeQueue、Index文件的刷盘时间点，文件大小为固定的4k,只用前24个字节
 public class StoreCheckpoint {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private final RandomAccessFile randomAccessFile;
     private final FileChannel fileChannel;
     private final MappedByteBuffer mappedByteBuffer;
+    //commitLog刷盘时间点（8字节）
     private volatile long physicMsgTimestamp = 0;
+    //ConsumeQueue刷盘时间点（8字节）
     private volatile long logicsMsgTimestamp = 0;
+    //Index文件刷盘时间点（8字节）
     private volatile long indexMsgTimestamp = 0;
 
     public StoreCheckpoint(final String scpPath) throws IOException {

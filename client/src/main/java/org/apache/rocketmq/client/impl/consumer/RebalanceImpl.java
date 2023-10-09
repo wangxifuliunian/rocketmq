@@ -259,7 +259,7 @@ public abstract class RebalanceImpl {
             }
             case CLUSTERING: {
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
-                List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);
+                List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);//从broker获取该消费组的所有消费者客户端id，broke上的消费者信息是在消费者启动时通过心跳注册的
                 if (null == mqSet) {
                     if (!topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
                         log.warn("doRebalance, {}, but the topic[{}] not exist.", consumerGroup, topic);
@@ -275,9 +275,9 @@ public abstract class RebalanceImpl {
                     mqAll.addAll(mqSet);
 
                     Collections.sort(mqAll);
-                    Collections.sort(cidAll);
+                    Collections.sort(cidAll);//排序：为了所有消费者客户端看到的试图保持一致
 
-                    AllocateMessageQueueStrategy strategy = this.allocateMessageQueueStrategy;
+                    AllocateMessageQueueStrategy strategy = this.allocateMessageQueueStrategy;//默认平均分配
 
                     List<MessageQueue> allocateResult = null;
                     try {
@@ -296,7 +296,7 @@ public abstract class RebalanceImpl {
                     if (allocateResult != null) {
                         allocateResultSet.addAll(allocateResult);
                     }
-
+                    //对比分配的队列是否变化
                     boolean changed = this.updateProcessQueueTableInRebalance(topic, allocateResultSet, isOrder);
                     if (changed) {
                         log.info(
@@ -339,14 +339,14 @@ public abstract class RebalanceImpl {
             ProcessQueue pq = next.getValue();
 
             if (mq.getTopic().equals(topic)) {
-                if (!mqSet.contains(mq)) {
-                    pq.setDropped(true);
-                    if (this.removeUnnecessaryMessageQueue(mq, pq)) {
+                if (!mqSet.contains(mq)) {//队列不在新分配队列集合中，说明该队列分配给其他消费者实例了
+                    pq.setDropped(true);//停止消费
+                    if (this.removeUnnecessaryMessageQueue(mq, pq)) {//持久化不需要队列消费进度到broker，并从客户端删除消费进度
                         it.remove();
                         changed = true;
                         log.info("doRebalance, {}, remove unnecessary mq, {}", consumerGroup, mq);
                     }
-                } else if (pq.isPullExpired()) {
+                } else if (pq.isPullExpired()) {//很久都没pull消息，这儿应该是处理僵死，如果僵死停止消费，先删除，后边重新分配，进行修复
                     switch (this.consumeType()) {
                         case CONSUME_ACTIVELY:
                             break;
@@ -368,22 +368,22 @@ public abstract class RebalanceImpl {
 
         List<PullRequest> pullRequestList = new ArrayList<PullRequest>();
         for (MessageQueue mq : mqSet) {
-            if (!this.processQueueTable.containsKey(mq)) {
-                if (isOrder && !this.lock(mq)) {
+            if (!this.processQueueTable.containsKey(mq)) {//老队列列表中不含此队列，说明是新分配的队列
+                if (isOrder && !this.lock(mq)) {//如果需要顺序消费，向broker发起对该队列加锁请求，如果加锁失败不创建拉取任务，直到其他消费者释放该锁
                     log.warn("doRebalance, {}, add a new mq failed, {}, because lock failed", consumerGroup, mq);
                     continue;
                 }
 
                 this.removeDirtyOffset(mq);
-                ProcessQueue pq = new ProcessQueue();
-                long nextOffset = this.computePullFromWhere(mq);
+                ProcessQueue pq = new ProcessQueue();//为新分配的队列创建对应的ProcessQueue，放到队列负载表processQueueTable中
+                long nextOffset = this.computePullFromWhere(mq);//计算下次pull的offset
                 if (nextOffset >= 0) {
                     ProcessQueue pre = this.processQueueTable.putIfAbsent(mq, pq);
                     if (pre != null) {
                         log.info("doRebalance, {}, mq already exists, {}", consumerGroup, mq);
                     } else {
                         log.info("doRebalance, {}, add a new mq, {}", consumerGroup, mq);
-                        PullRequest pullRequest = new PullRequest();
+                        PullRequest pullRequest = new PullRequest();//为新分配的队列创建拉取任务pullRequest，添加到pullRequestQueue中，进行消息拉取
                         pullRequest.setConsumerGroup(consumerGroup);
                         pullRequest.setNextOffset(nextOffset);
                         pullRequest.setMessageQueue(mq);
@@ -391,7 +391,7 @@ public abstract class RebalanceImpl {
                         pullRequestList.add(pullRequest);
                         changed = true;
                     }
-                } else {
+                } else {//客户端异常，或者消费进度文件存储了错误的offset，不分配此mq，等待下次重平衡重新分配
                     log.warn("doRebalance, {}, add new mq failed, {}", consumerGroup, mq);
                 }
             }

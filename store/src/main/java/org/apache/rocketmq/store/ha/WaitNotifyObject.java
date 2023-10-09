@@ -65,9 +65,9 @@ public class WaitNotifyObject {
         synchronized (this) {
             boolean needNotify = false;
 
-            for (Boolean value : this.waitingThreadTable.values()) {
+            for (Boolean value : this.waitingThreadTable.values()) {//只要waitingThreadTable有一个value为false，则needNotify为true，调用notifyAll
                 needNotify = needNotify || !value;
-                value = true;
+                value = true;//这是干嘛的？应该是将线程的唤醒标志设为true，表示已唤醒
             }
 
             if (needNotify) {

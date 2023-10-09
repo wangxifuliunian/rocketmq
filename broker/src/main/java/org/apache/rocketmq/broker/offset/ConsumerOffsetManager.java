@@ -38,7 +38,7 @@ public class ConsumerOffsetManager extends ConfigManager {
     private static final String TOPIC_GROUP_SEPARATOR = "@";
 
     private ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> offsetTable =
-        new ConcurrentHashMap<String, ConcurrentMap<Integer, Long>>(512);
+        new ConcurrentHashMap<String, ConcurrentMap<Integer, Long>>(512);//对应${user.home}/store/config/consumerOffset.json
 
     private transient BrokerController brokerController;
 
@@ -139,6 +139,7 @@ public class ConsumerOffsetManager extends ConfigManager {
         }
     }
 
+
     public long queryOffset(final String group, final String topic, final int queueId) {
         // topic@group
         String key = topic + TOPIC_GROUP_SEPARATOR + group;
@@ -146,9 +147,10 @@ public class ConsumerOffsetManager extends ConfigManager {
         if (null != map) {
             Long offset = map.get(queueId);
             if (offset != null)
+                //曾经提交过位置点
                 return offset;
         }
-
+        //没有提交过位置点
         return -1;
     }
 

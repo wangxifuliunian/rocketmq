@@ -109,7 +109,7 @@ public class MQClientInstance {
         }
     });
     private final ClientRemotingProcessor clientRemotingProcessor;
-    private final PullMessageService pullMessageService;
+    private final PullMessageService pullMessageService;//消息拉取服务，包含一个单独的拉取线程（单线程拉取）执行拉取任务，和kafka有区别
     private final RebalanceService rebalanceService;
     private final DefaultMQProducer defaultMQProducer;
     private final ConsumerStatsManager consumerStatsManager;
@@ -234,9 +234,9 @@ public class MQClientInstance {
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
                     this.startScheduledTask();
-                    // Start pull service
+                    // Start pull service 启动消息拉取服务
                     this.pullMessageService.start();
-                    // Start rebalance service
+                    // Start rebalance service 启动重平衡服务
                     this.rebalanceService.start();
                     // Start push service
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
@@ -766,6 +766,7 @@ public class MQClientInstance {
             return true;
         TopicRouteData old = olddata.cloneTopicRouteData();
         TopicRouteData now = nowdata.cloneTopicRouteData();
+        //为啥要排序，因为List.equals方法，是遍历比较每一个元素
         Collections.sort(old.getQueueDatas());
         Collections.sort(old.getBrokerDatas());
         Collections.sort(now.getQueueDatas());

@@ -19,7 +19,7 @@ package org.apache.rocketmq.store.config;
 import java.io.File;
 
 public class StorePathConfigHelper {
-
+    //rootDir拼接的？那broker.config中配置的storePathConsumeQueue有啥用？？
     public static String getStorePathConsumeQueue(final String rootDir) {
         return rootDir + File.separator + "consumequeue";
     }

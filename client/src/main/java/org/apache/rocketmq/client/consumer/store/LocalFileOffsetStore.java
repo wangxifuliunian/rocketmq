@@ -45,7 +45,7 @@ public class LocalFileOffsetStore implements OffsetStore {
     private final static Logger log = ClientLogger.getLog();
     private final MQClientInstance mQClientFactory;
     private final String groupName;
-    private final String storePath;
+    private final String storePath;//消息消费进度存储路径
     private ConcurrentMap<MessageQueue, AtomicLong> offsetTable =
         new ConcurrentHashMap<MessageQueue, AtomicLong>();
 
@@ -129,7 +129,7 @@ public class LocalFileOffsetStore implements OffsetStore {
     }
 
     @Override
-    public void persistAll(Set<MessageQueue> mqs) {
+    public void persistAll(Set<MessageQueue> mqs) {//MQClientInstance中会启动1个定时任务，默认每5s持久化1次，可通过persistConsumerOffsetInterval设置
         if (null == mqs || mqs.isEmpty())
             return;
 

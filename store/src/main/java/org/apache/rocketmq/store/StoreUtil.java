@@ -20,7 +20,7 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.OperatingSystemMXBean;
 
 public class StoreUtil {
-    public static final long TOTAL_PHYSICAL_MEMORY_SIZE = getTotalPhysicalMemorySize();
+    public static final long TOTAL_PHYSICAL_MEMORY_SIZE = getTotalPhysicalMemorySize();//24G
 
     @SuppressWarnings("restriction")
     public static long getTotalPhysicalMemorySize() {

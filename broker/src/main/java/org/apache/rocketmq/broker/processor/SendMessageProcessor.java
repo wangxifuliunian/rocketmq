@@ -126,12 +126,12 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             return response;
         }
 
-        if (subscriptionGroupConfig.getRetryQueueNums() <= 0) {
+        if (subscriptionGroupConfig.getRetryQueueNums() <= 0) {//不支持重试
             response.setCode(ResponseCode.SUCCESS);
             response.setRemark(null);
             return response;
         }
-
+        //重试topic=%RETRY%＋消费组名称
         String newTopic = MixAll.getRetryTopic(requestHeader.getGroup());
         int queueIdInt = Math.abs(this.random.nextInt() % 99999999) % subscriptionGroupConfig.getRetryQueueNums();
 
@@ -143,7 +143,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(
             newTopic,
             subscriptionGroupConfig.getRetryQueueNums(),
-            PermName.PERM_WRITE | PermName.PERM_READ, topicSysFlag);
+            PermName.PERM_WRITE | PermName.PERM_READ, topicSysFlag);//如果不存在重试topic，则创建
         if (null == topicConfig) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark("topic[" + newTopic + "] not exist");
@@ -164,7 +164,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         }
 
         final String retryTopic = msgExt.getProperty(MessageConst.PROPERTY_RETRY_TOPIC);
-        if (null == retryTopic) {
+        if (null == retryTopic) {//消息没有PROPERTY_RETRY_TOPIC属性，将PROPERTY_RETRY_TOPIC设置为原始topic
             MessageAccessor.putProperty(msgExt, MessageConst.PROPERTY_RETRY_TOPIC, msgExt.getTopic());
         }
         msgExt.setWaitStoreMsgOK(false);
@@ -177,14 +177,14 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         }
 
         if (msgExt.getReconsumeTimes() >= maxReconsumeTimes
-            || delayLevel < 0) {
-            newTopic = MixAll.getDLQTopic(requestHeader.getGroup());
+            || delayLevel < 0) {//达到最大重试次数或延迟级别小于0
+            newTopic = MixAll.getDLQTopic(requestHeader.getGroup());//死信队列
             queueIdInt = Math.abs(this.random.nextInt() % 99999999) % DLQ_NUMS_PER_GROUP;
 
             topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(newTopic,
                 DLQ_NUMS_PER_GROUP,
                 PermName.PERM_WRITE, 0
-            );
+            );//创建死信队列topic,权限为只写，说明一旦消息进入DLQ队列，不在进行消费
             if (null == topicConfig) {
                 response.setCode(ResponseCode.SYSTEM_ERROR);
                 response.setRemark("topic[" + newTopic + "] not exist");
@@ -192,14 +192,14 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             }
         } else {
             if (0 == delayLevel) {
-                delayLevel = 3 + msgExt.getReconsumeTimes();
+                delayLevel = 3 + msgExt.getReconsumeTimes();//为啥这样写???这儿说明重试是从延迟级别3开始的
             }
 
             msgExt.setDelayTimeLevel(delayLevel);
         }
 
-        MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
-        msgInner.setTopic(newTopic);
+        MessageExtBrokerInner msgInner = new MessageExtBrokerInner();//根据原消息创建重试消息，重试消息拥有自己的msgId
+        msgInner.setTopic(newTopic);//重试topic或DLQ topic
         msgInner.setBody(msgExt.getBody());
         msgInner.setFlag(msgExt.getFlag());
         MessageAccessor.setProperties(msgInner, msgExt.getProperties());
@@ -211,12 +211,12 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         msgInner.setBornTimestamp(msgExt.getBornTimestamp());
         msgInner.setBornHost(msgExt.getBornHost());
         msgInner.setStoreHost(this.getStoreHost());
-        msgInner.setReconsumeTimes(msgExt.getReconsumeTimes() + 1);
+        msgInner.setReconsumeTimes(msgExt.getReconsumeTimes() + 1);//重试次数加1
 
         String originMsgId = MessageAccessor.getOriginMessageId(msgExt);
-        MessageAccessor.setOriginMessageId(msgInner, UtilAll.isBlank(originMsgId) ? msgExt.getMsgId() : originMsgId);
+        MessageAccessor.setOriginMessageId(msgInner, UtilAll.isBlank(originMsgId) ? msgExt.getMsgId() : originMsgId);//设置重试消息的原始消息ID，套娃
 
-        PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
+        PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);//保存重试消息到commitLog文件
         if (putMessageResult != null) {
             switch (putMessageResult.getPutMessageStatus()) {
                 case PUT_OK:

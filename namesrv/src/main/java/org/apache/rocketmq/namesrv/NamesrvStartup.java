@@ -55,6 +55,7 @@ public class NamesrvStartup {
             commandLine = ServerUtil.parseCmdLine("mqnamesrv", args, buildCommandlineOptions(options), new PosixParser());
             if (null == commandLine) {
                 System.exit(-1);
+                //为啥要return
                 return null;
             }
 

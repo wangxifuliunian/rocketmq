@@ -83,8 +83,8 @@ public class RebalancePushImpl extends RebalanceImpl {
 
     @Override
     public boolean removeUnnecessaryMessageQueue(MessageQueue mq, ProcessQueue pq) {
-        this.defaultMQPushConsumerImpl.getOffsetStore().persist(mq);
-        this.defaultMQPushConsumerImpl.getOffsetStore().removeOffset(mq);
+        this.defaultMQPushConsumerImpl.getOffsetStore().persist(mq);//持久化此队列消费进度到broker
+        this.defaultMQPushConsumerImpl.getOffsetStore().removeOffset(mq);//删除此mq
         if (this.defaultMQPushConsumerImpl.isConsumeOrderly()
             && MessageModel.CLUSTERING.equals(this.defaultMQPushConsumerImpl.messageModel())) {
             try {
@@ -148,25 +148,32 @@ public class RebalancePushImpl extends RebalanceImpl {
             case CONSUME_FROM_MAX_OFFSET:
             case CONSUME_FROM_LAST_OFFSET: {
                 long lastOffset = offsetStore.readOffset(mq, ReadOffsetType.READ_FROM_STORE);
+                System.out.println("topic:"+mq.getTopic() + "lastOffset:"+lastOffset);
                 if (lastOffset >= 0) {
+                    /**
+                     * 提交过位点，返回提交过的位点
+                     * 刚创建topic,offset为0还没有消息，或者offset为0的消息已经过期，或者offset为0的消息还在内存中还没有swap到磁盘（说明消息还很新），返回0
+                     */
                     result = lastOffset;
                 }
                 // First start,no offset
-                else if (-1 == lastOffset) {
+                else if (-1 == lastOffset) {//没有提交过位点，且offset为0的消息已经swap到磁盘（说明消息已经很久了），返回最大的offset
                     if (mq.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
                         result = 0L;
                     } else {
                         try {
                             result = this.mQClientFactory.getMQAdminImpl().maxOffset(mq);
+                            System.out.println("topic:"+mq.getTopic() + "max0FFSET:"+result);
                         } catch (MQClientException e) {
                             result = -1;
                         }
                     }
-                } else {
+                } else {//客户端异常，或者消费进度文件存储了错误的offset，返回-1
                     result = -1;
                 }
                 break;
             }
+            //如果提交过位置点从提交的位置点开始，如果没有从0开始
             case CONSUME_FROM_FIRST_OFFSET: {
                 long lastOffset = offsetStore.readOffset(mq, ReadOffsetType.READ_FROM_STORE);
                 if (lastOffset >= 0) {
@@ -178,7 +185,7 @@ public class RebalancePushImpl extends RebalanceImpl {
                 }
                 break;
             }
-            case CONSUME_FROM_TIMESTAMP: {
+            case CONSUME_FROM_TIMESTAMP: {//如果提交过位置点从提交的位置点开始，如果没有从消费者实例启动时间开始
                 long lastOffset = offsetStore.readOffset(mq, ReadOffsetType.READ_FROM_STORE);
                 if (lastOffset >= 0) {
                     result = lastOffset;
@@ -207,7 +214,7 @@ public class RebalancePushImpl extends RebalanceImpl {
             default:
                 break;
         }
-
+        System.out.println("topic:"+mq.getTopic() + "result:"+result);
         return result;
     }
 

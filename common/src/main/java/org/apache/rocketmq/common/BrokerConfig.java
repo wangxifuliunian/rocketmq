@@ -130,7 +130,7 @@ public class BrokerConfig {
     private long filterDataCleanTimeSpan = 24 * 3600 * 1000;
 
     // whether do filter when retry.
-    private boolean filterSupportRetry = false;
+    private boolean filterSupportRetry = false;//消息过滤是否支持重试队列
     private boolean enablePropertyFilter = false;
 
     public boolean isTraceOn() {

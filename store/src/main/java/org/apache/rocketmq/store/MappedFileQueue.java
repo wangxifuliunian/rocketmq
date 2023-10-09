@@ -37,16 +37,17 @@ public class MappedFileQueue {
 
     private final String storePath;
 
+    //一般为1G 1024*1024*1024
     private final int mappedFileSize;
 
     private final CopyOnWriteArrayList<MappedFile> mappedFiles = new CopyOnWriteArrayList<MappedFile>();
 
     private final AllocateMappedFileService allocateMappedFileService;
 
-    private long flushedWhere = 0;
-    private long committedWhere = 0;
+    private long flushedWhere = 0;    //表示已经刷盘的位置点，绝对位置
+    private long committedWhere = 0;    //表示已经提交的位置点，绝对位置
 
-    private volatile long storeTimestamp = 0;
+    private volatile long storeTimestamp = 0;//什么 时间？？上次flush时间？并不完全是，好像只会1000*10变一次
 
     public MappedFileQueue(final String storePath, int mappedFileSize,
         AllocateMappedFileService allocateMappedFileService) {
@@ -79,7 +80,7 @@ public class MappedFileQueue {
 
         if (null == mfs)
             return null;
-
+        //顺序写保证？？
         for (int i = 0; i < mfs.length; i++) {
             MappedFile mappedFile = (MappedFile) mfs[i];
             if (mappedFile.getLastModifiedTimestamp() >= timestamp) {
@@ -107,11 +108,11 @@ public class MappedFileQueue {
         for (MappedFile file : this.mappedFiles) {
             long fileTailOffset = file.getFileFromOffset() + this.mappedFileSize;
             if (fileTailOffset > offset) {
-                if (offset >= file.getFileFromOffset()) {
+                if (offset >= file.getFileFromOffset()) {//文件中有部分是脏数据，截断offset后的脏数据
                     file.setWrotePosition((int) (offset % this.mappedFileSize));
                     file.setCommittedPosition((int) (offset % this.mappedFileSize));
                     file.setFlushedPosition((int) (offset % this.mappedFileSize));
-                } else {
+                } else {//整个文件都是脏数据，直接删除文件
                     file.destroy(1000);
                     willRemoveFiles.add(file);
                 }
@@ -191,6 +192,12 @@ public class MappedFileQueue {
         return 0;
     }
 
+    /**
+     * 获取最后一个可写的mapfile,如果没有，根据情况新建
+     * @param startOffset 新mapfile需要包含的此startOffset，比如mappedFileSize为10,startOffset为21,则新建的mapfile的offset为20-29
+     * @param needCreate 如果没有可写mapfile，是否需要新建mapfile
+     * @return
+     */
     public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
         long createOffset = -1;
         MappedFile mappedFileLast = getLastMappedFile();
@@ -204,6 +211,7 @@ public class MappedFileQueue {
         }
 
         if (createOffset != -1 && needCreate) {
+            //不仅创建nextFile，还创建nextNextFile
             String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
             String nextNextFilePath = this.storePath + File.separator
                 + UtilAll.offset2FileName(createOffset + this.mappedFileSize);
@@ -239,7 +247,7 @@ public class MappedFileQueue {
 
     public MappedFile getLastMappedFile() {
         MappedFile mappedFileLast = null;
-
+        //为何要while??文件有可能被删除，比如过期策略，导致size变了，IndexOutOfBoundsException， 所以自旋
         while (!this.mappedFiles.isEmpty()) {
             try {
                 mappedFileLast = this.mappedFiles.get(this.mappedFiles.size() - 1);
@@ -289,6 +297,7 @@ public class MappedFileQueue {
 
         if (!this.mappedFiles.isEmpty()) {
             try {
+                //删除策略决定不能直接返回0
                 return this.mappedFiles.get(0).getFileFromOffset();
             } catch (IndexOutOfBoundsException e) {
                 //continue;
@@ -350,7 +359,7 @@ public class MappedFileQueue {
                 MappedFile mappedFile = (MappedFile) mfs[i];
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
-                    if (mappedFile.destroy(intervalForcibly)) {
+                    if (mappedFile.destroy(intervalForcibly)) {//清除mappedFile占用的资源
                         files.add(mappedFile);
                         deleteCount++;
 
@@ -431,7 +440,7 @@ public class MappedFileQueue {
             long where = mappedFile.getFileFromOffset() + offset;
             result = where == this.flushedWhere;
             this.flushedWhere = where;
-            if (0 == flushLeastPages) {
+            if (0 == flushLeastPages) {//??
                 this.storeTimestamp = tmpTimeStamp;
             }
         }
@@ -441,11 +450,11 @@ public class MappedFileQueue {
 
     public boolean commit(final int commitLeastPages) {
         boolean result = true;
-        MappedFile mappedFile = this.findMappedFileByOffset(this.committedWhere, this.committedWhere == 0);
+        MappedFile mappedFile = this.findMappedFileByOffset(this.committedWhere, this.committedWhere == 0);//获取接下来要提交的MappedFile
         if (mappedFile != null) {
             int offset = mappedFile.commit(commitLeastPages);
-            long where = mappedFile.getFileFromOffset() + offset;
-            result = where == this.committedWhere;
+            long where = mappedFile.getFileFromOffset() + offset;//计算已提交位置（绝对位置）
+            result = where == this.committedWhere;//result==false意味着有数据提交
             this.committedWhere = where;
         }
 
@@ -455,7 +464,7 @@ public class MappedFileQueue {
     /**
      * Finds a mapped file by offset.
      *
-     * @param offset Offset.
+     * @param offset Offset. 物理上的字节偏移量？每个消息并不是连续的？
      * @param returnFirstOnNotFound If the mapped file is not found, then return the first one.
      * @return Mapped file or null (when not found and returnFirstOnNotFound is <code>false</code>).
      */
@@ -463,6 +472,7 @@ public class MappedFileQueue {
         try {
             MappedFile mappedFile = this.getFirstMappedFile();
             if (mappedFile != null) {
+                //由于存在过期删除策略，所以不能直接offset / this.mappedFileSize
                 int index = (int) ((offset / this.mappedFileSize) - (mappedFile.getFileFromOffset() / this.mappedFileSize));
                 if (index < 0 || index >= this.mappedFiles.size()) {
                     LOG_ERROR.warn("Offset for {} not matched. Request offset: {}, index: {}, " +

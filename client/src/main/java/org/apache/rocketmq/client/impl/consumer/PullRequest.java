@@ -20,10 +20,10 @@ import org.apache.rocketmq.common.message.MessageQueue;
 
 public class PullRequest {
     private String consumerGroup;
-    private MessageQueue messageQueue;
-    private ProcessQueue processQueue;
-    private long nextOffset;
-    private boolean lockedFirst = false;
+    private MessageQueue messageQueue;//待拉取消息的队列
+    private ProcessQueue processQueue;//从broker拉取到消息后，先放到此队列，然后再由消费线程池消费
+    private long nextOffset;//待拉取消息的offset（messageQueue中的偏移量）
+    private boolean lockedFirst = false;//？？
 
     public boolean isLockedFirst() {
         return lockedFirst;

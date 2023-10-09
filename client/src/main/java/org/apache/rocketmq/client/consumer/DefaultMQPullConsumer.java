@@ -77,7 +77,7 @@ public class DefaultMQPullConsumer extends ClientConfig implements MQPullConsume
     /**
      * Queue allocation algorithm
      */
-    private AllocateMessageQueueStrategy allocateMessageQueueStrategy = new AllocateMessageQueueAveragely();
+    private AllocateMessageQueueStrategy allocateMessageQueueStrategy = new AllocateMessageQueueAveragely();//默认平均分配
     /**
      * Whether the unit of subscription group
      */

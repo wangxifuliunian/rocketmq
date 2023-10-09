@@ -23,7 +23,12 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.store.config.StorePathConfigHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
+/**
+ * 一个ConsumeQueue对象与一个topic的一个队列对应，个ConsumeQueue对象相当于一个大ConsumeQueue条目数组，包含多个ConsumeQueue文件
+ * 每个ConsumeQueue文件有30w个条目，每个条目占用20字节，条目格式如下：
+ * 8（消息在commitLog的物理偏移量）+4（消息大小）+8（tagCode），消息到达CommitLog后，线程异步构建
+ *
+ */
 public class ConsumeQueue {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
@@ -104,34 +109,34 @@ public class ConsumeQueue {
                     int size = byteBuffer.getInt();
                     long tagsCode = byteBuffer.getLong();
 
-                    if (offset >= 0 && size > 0) {
+                    if (offset >= 0 && size > 0) {//有效消息
                         mappedFileOffset = i + CQ_STORE_UNIT_SIZE;
                         this.maxPhysicOffset = offset;
                         if (isExtAddr(tagsCode)) {
                             maxExtAddr = tagsCode;
                         }
-                    } else {
+                    } else {//中间文件有问题或者走到文件末尾
                         log.info("recover current consume queue file over,  " + mappedFile.getFileName() + " "
                             + offset + " " + size + " " + tagsCode);
                         break;
                     }
                 }
 
-                if (mappedFileOffset == mappedFileSizeLogics) {
+                if (mappedFileOffset == mappedFileSizeLogics) {//走到文件末尾
                     index++;
-                    if (index >= mappedFiles.size()) {
+                    if (index >= mappedFiles.size()) {//所有文件都看完了
 
                         log.info("recover last consume queue file over, last mapped file "
                             + mappedFile.getFileName());
                         break;
-                    } else {
+                    } else {//还有文件没看
                         mappedFile = mappedFiles.get(index);
                         byteBuffer = mappedFile.sliceByteBuffer();
                         processOffset = mappedFile.getFileFromOffset();
                         mappedFileOffset = 0;
                         log.info("recover next consume queue file, " + mappedFile.getFileName());
                     }
-                } else {
+                } else {//中间文件有问题
                     log.info("recover current consume queue queue over " + mappedFile.getFileName() + " "
                         + (processOffset + mappedFileOffset));
                     break;
@@ -139,9 +144,9 @@ public class ConsumeQueue {
             }
 
             processOffset += mappedFileOffset;
-            this.mappedFileQueue.setFlushedWhere(processOffset);
-            this.mappedFileQueue.setCommittedWhere(processOffset);
-            this.mappedFileQueue.truncateDirtyFiles(processOffset);
+            this.mappedFileQueue.setFlushedWhere(processOffset);//processOffset以前的文件正常，FlushedWhere作用？？
+            this.mappedFileQueue.setCommittedWhere(processOffset);//processOffset以前的文件正常，CommittedWhere作用？？
+            this.mappedFileQueue.truncateDirtyFiles(processOffset);//processOffset以前的文件正常
 
             if (isExtReadEnable()) {
                 this.consumeQueueExt.recover();
@@ -163,9 +168,11 @@ public class ConsumeQueue {
             SelectMappedBufferResult sbr = mappedFile.selectMappedBuffer(0);
             if (null != sbr) {
                 ByteBuffer byteBuffer = sbr.getByteBuffer();
+                //为何减CQ_STORE_UNIT_SIZE？？
                 high = byteBuffer.limit() - CQ_STORE_UNIT_SIZE;
                 try {
                     while (high >= low) {
+                        //为何CQ_STORE_UNIT_SIZE？？除不尽的情况？
                         midOffset = (low + high) / (2 * CQ_STORE_UNIT_SIZE) * CQ_STORE_UNIT_SIZE;
                         byteBuffer.position(midOffset);
                         long phyOffset = byteBuffer.getLong();
@@ -482,12 +489,18 @@ public class ConsumeQueue {
         }
     }
 
+    /**
+     * 根据startIndex获取ConsumeQueue条目（正确的说是startIndex所在文件中startIndex及以后能读取的条目）
+     * @param startIndex ConsumeQueue条目下标，ConsumeQueue级别，消息消费进度存储的就是该值，对应kafka的offset，
+     * @return
+     */
     public SelectMappedBufferResult getIndexBuffer(final long startIndex) {
         int mappedFileSize = this.mappedFileSize;
-        long offset = startIndex * CQ_STORE_UNIT_SIZE;
+        long offset = startIndex * CQ_STORE_UNIT_SIZE;//获取startIndex在这个ConsumeQueue中的物理偏移量
         if (offset >= this.getMinLogicOffset()) {
-            MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset);
+            MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset);//得到物理偏移量所在的ConsumeQueue物理文件
             if (mappedFile != null) {
+                //offset % mappedFileSize为该条目在物理文件中的偏移量，如果向后读取20字节，则得到该条目，这儿返回的是offset后所有能读取的字节
                 SelectMappedBufferResult result = mappedFile.selectMappedBuffer((int) (offset % mappedFileSize));
                 return result;
             }
@@ -517,10 +530,10 @@ public class ConsumeQueue {
         this.minLogicOffset = minLogicOffset;
     }
 
-    public long rollNextFile(final long index) {
+    public long rollNextFile(final long index) {//30.2w
         int mappedFileSize = this.mappedFileSize;
-        int totalUnitsInFile = mappedFileSize / CQ_STORE_UNIT_SIZE;
-        return index + totalUnitsInFile - index % totalUnitsInFile;
+        int totalUnitsInFile = mappedFileSize / CQ_STORE_UNIT_SIZE;//30w
+        return index + totalUnitsInFile - index % totalUnitsInFile;//30.2w+30w-0.2w=60w
     }
 
     public String getTopic() {

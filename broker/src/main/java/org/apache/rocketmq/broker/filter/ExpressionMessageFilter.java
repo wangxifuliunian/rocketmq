@@ -78,7 +78,7 @@ public class ExpressionMessageFilter implements MessageFilter {
                 return true;
             }
 
-            return subscriptionData.getCodeSet().contains(tagsCode.intValue());
+            return subscriptionData.getCodeSet().contains(tagsCode.intValue());//基于tag的过滤broker端只比较tag hashcode,还需要消费端对tag进行精确匹配
         } else {
             // no expression or no bloom
             if (consumerFilterData == null || consumerFilterData.getExpression() == null
@@ -124,7 +124,7 @@ public class ExpressionMessageFilter implements MessageFilter {
             return true;
         }
 
-        if (ExpressionType.isTagType(subscriptionData.getExpressionType())) {
+        if (ExpressionType.isTagType(subscriptionData.getExpressionType())) {//基于tag过滤直接返回true
             return true;
         }
 

@@ -68,14 +68,14 @@ public class PullRequestHoldService extends ServiceThread {
         log.info("{} service started", this.getServiceName());
         while (!this.isStopped()) {
             try {
-                if (this.brokerController.getBrokerConfig().isLongPollingEnable()) {
-                    this.waitForRunning(5 * 1000);
+                if (this.brokerController.getBrokerConfig().isLongPollingEnable()) {//长轮询
+                    this.waitForRunning(5 * 1000);//等5s后执行
                 } else {
                     this.waitForRunning(this.brokerController.getBrokerConfig().getShortPollingTimeMills());
                 }
 
                 long beginLockTimestamp = this.systemClock.now();
-                this.checkHoldRequest();
+                this.checkHoldRequest();//检查新消息是否到达
                 long costTime = this.systemClock.now() - beginLockTimestamp;
                 if (costTime > 5 * 1000) {
                     log.info("[NOTIFYME] check hold request cost {} ms.", costTime);
@@ -124,11 +124,11 @@ public class PullRequestHoldService extends ServiceThread {
 
                 for (PullRequest request : requestList) {
                     long newestOffset = maxOffset;
-                    if (newestOffset <= request.getPullFromThisOffset()) {
+                    if (newestOffset <= request.getPullFromThisOffset()) {//说明没有新消息到达
                         newestOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                     }
 
-                    if (newestOffset > request.getPullFromThisOffset()) {
+                    if (newestOffset > request.getPullFromThisOffset()) {//说明有新消息到达
                         boolean match = request.getMessageFilter().isMatchedByConsumeQueue(tagsCode,
                             new ConsumeQueueExt.CqExtUnit(tagsCode, msgStoreTime, filterBitMap));
                         // match by bit map, need eval again when properties is not null.
@@ -136,10 +136,10 @@ public class PullRequestHoldService extends ServiceThread {
                             match = request.getMessageFilter().isMatchedByCommitLog(null, properties);
                         }
 
-                        if (match) {
+                        if (match) {//消息匹配
                             try {
                                 this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),
-                                    request.getRequestCommand());
+                                    request.getRequestCommand());//执行拉取消息的请求,拉取新消息，返回客户端
                             } catch (Throwable e) {
                                 log.error("execute request when wakeup failed.", e);
                             }
@@ -147,17 +147,17 @@ public class PullRequestHoldService extends ServiceThread {
                         }
                     }
 
-                    if (System.currentTimeMillis() >= (request.getSuspendTimestamp() + request.getTimeoutMillis())) {
+                    if (System.currentTimeMillis() >= (request.getSuspendTimestamp() + request.getTimeoutMillis())) {//挂起时间超时，不用继续等待，返回客户端消息未找到
                         try {
                             this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),
-                                request.getRequestCommand());
+                                request.getRequestCommand());//执行拉取消息的请求
                         } catch (Throwable e) {
                             log.error("execute request when wakeup failed.", e);
                         }
                         continue;
                     }
 
-                    replayList.add(request);
+                    replayList.add(request);//重放请求，等待下一次尝试
                 }
 
                 if (!replayList.isEmpty()) {

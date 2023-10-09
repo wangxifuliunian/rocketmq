@@ -72,6 +72,8 @@ public class PullMessageService extends ServiceThread {
     private void pullMessage(final PullRequest pullRequest) {
         final MQConsumerInner consumer = this.mQClientFactory.selectConsumer(pullRequest.getConsumerGroup());
         if (consumer != null) {
+            //这里强转可以看出PullMessageService只能用于push模式的消费者，那pull模式怎么拉取消息的？
+            //pull模式拉取消息是由应用程序自己控制的，Rocketmq提供api即可。从DefaultMQPullConsumer的api也能看出来，他没有subscribe方法，反而有pull方法。
             DefaultMQPushConsumerImpl impl = (DefaultMQPushConsumerImpl) consumer;
             impl.pullMessage(pullRequest);
         } else {
@@ -85,6 +87,14 @@ public class PullMessageService extends ServiceThread {
 
         while (!this.isStopped()) {
             try {
+                /**
+                 *  pullRequest什么时候放到pullRequestQueue中的？
+                 *  见本类executePullRequestLater和executePullRequestImmediately方法
+                 *
+                 *  pullRequest什么时候创建的？两种情况：
+                 *  1.根据pullRequest执行完一次拉取任务后，又将pullRequest重新放入pullRequestQueue中
+                 *  2.在rebalanceImpl中创建，这才是真正创建pullRequest的地方。
+                 */
                 PullRequest pullRequest = this.pullRequestQueue.take();
                 if (pullRequest != null) {
                     this.pullMessage(pullRequest);

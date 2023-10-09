@@ -43,9 +43,12 @@ public class MessageClientIDSetter {
         }
         tempBuffer.position(6);
         tempBuffer.putInt(MessageClientIDSetter.class.getClassLoader().hashCode());
+        //ip(2)+pid(4)+hashCode(4)
         FIX_STRING = UtilAll.bytes2string(tempBuffer.array());
         setStartTime(System.currentTimeMillis());
         COUNTER = new AtomicInteger(0);
+
+
     }
 
     private synchronized static void setStartTime(long millis) {
@@ -79,6 +82,9 @@ public class MessageClientIDSetter {
         cal.set(Calendar.SECOND, 0);
         cal.set(Calendar.MILLISECOND, 0);
         long monStartTime = cal.getTimeInMillis();
+        //比如1月20日发送的消息，当前时间是2月3日，spanMS等于20日的时间戳，monStartTime + spanMS = 2月+20日>当前时间，-1回退1月，获得1月20日正是发送消息得时间
+        //如果是1月3号发送消息，当前时间是2月10日，spanMS等于3日的时间戳，monStartTime + spanMS = 2月+3日<当前时间，不-1
+        //如果是1月3号发送消息，当前时间是1月10号，spanMS等于3日的时间戳，monStartTime + spanMS = 1月+3日，是发送消息得时间
         if (monStartTime + spanMS >= now) {
             cal.add(Calendar.MONTH, -1);
             monStartTime = cal.getTimeInMillis();
@@ -113,10 +119,19 @@ public class MessageClientIDSetter {
             setStartTime(current);
         }
         buffer.position(0);
-        buffer.putInt((int) (System.currentTimeMillis() - startTime));
-        buffer.putShort((short) COUNTER.getAndIncrement());
+        buffer.putInt((int) (System.currentTimeMillis() - startTime));//当前时间与本月1日0时0分0秒的差值
+        buffer.putShort((short) COUNTER.getAndIncrement());//全局递增，循环往复
         return buffer.array();
     }
+
+
+    public static void main(String[] args) {
+        String uniqID = createUniqID();
+        System.out.println("uniqId:"+uniqID);
+        Date nearlyTimeFromID = getNearlyTimeFromID(uniqID);
+        System.out.println(nearlyTimeFromID);
+    }
+
 
     public static void setUniqID(final Message msg) {
         if (msg.getProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX) == null) {

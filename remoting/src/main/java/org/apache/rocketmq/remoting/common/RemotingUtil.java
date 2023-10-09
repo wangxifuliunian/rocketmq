@@ -58,7 +58,7 @@ public class RemotingUtil {
     public static Selector openSelector() throws IOException {
         Selector result = null;
 
-        if (isLinuxPlatform()) {
+        if (isLinuxPlatform()) {//??为什么不直接用Selector.open()呢，即使系统属性或spi指定，也强制linux系统用epoll
             try {
                 final Class<?> providerClazz = Class.forName("sun.nio.ch.EPollSelectorProvider");
                 if (providerClazz != null) {
@@ -167,8 +167,8 @@ public class RemotingUtil {
         try {
             sc = SocketChannel.open();
             sc.configureBlocking(true);
-            sc.socket().setSoLinger(false, -1);
-            sc.socket().setTcpNoDelay(true);
+            sc.socket().setSoLinger(false, -1);//SO_LINGER选项用于控制close系统调用在关闭TCP连接时的行为
+            sc.socket().setTcpNoDelay(true);//禁用nagle算法
             sc.socket().setReceiveBufferSize(1024 * 64);
             sc.socket().setSendBufferSize(1024 * 64);
             sc.socket().connect(remote, timeoutMillis);

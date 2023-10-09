@@ -72,10 +72,12 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
         }
 
         if (!tmpList.isEmpty()) {
+            //为啥不直接sort,要先调用shuffle？难道是为了尽量不去同一个
             Collections.shuffle(tmpList);
 
             Collections.sort(tmpList);
 
+            //算法的意义？
             final int half = tmpList.size() / 2;
             if (half <= 0) {
                 return tmpList.get(0).getName();

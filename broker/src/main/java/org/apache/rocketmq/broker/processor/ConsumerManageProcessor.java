@@ -115,6 +115,18 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
         return response;
     }
 
+    /**
+     * 查询消费组的在某个队列消费进度
+     * 1. 如果提交过offset，返回提交的offset
+     * 2. 如果没有提交过offset
+     * 2.1）offset为0的ConsumeQueue条目不存在，返回0（可能是只创建了topic，还没有生产过消息，或者虽然生产了消息但是消息已过期）
+     * 2.2）offset为0的ConsumeQueue条目存在，offset为0的消息是否在内存中，如果在内存中返回0（生产力了消息但是消息还没有swap到磁盘）
+     * 2.3）其他情况，返回QUERY_NOT_FOUND
+     * @param ctx
+     * @param request
+     * @return
+     * @throws RemotingCommandException
+     */
     private RemotingCommand queryConsumerOffset(ChannelHandlerContext ctx, RemotingCommand request)
         throws RemotingCommandException {
         final RemotingCommand response =
@@ -129,17 +141,18 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
             this.brokerController.getConsumerOffsetManager().queryOffset(
                 requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId());
 
-        if (offset >= 0) {
+        if (offset >= 0) {//提交过位点，则返回提交过的位点
             responseHeader.setOffset(offset);
             response.setCode(ResponseCode.SUCCESS);
             response.setRemark(null);
-        } else {
+        } else {//没有提交过位置点
+            //有topic-QueueId对应的ConsumeQueue，返回对应的minOffset,否则返回-1
             long minOffset =
                 this.brokerController.getMessageStore().getMinOffsetInQueue(requestHeader.getTopic(),
                     requestHeader.getQueueId());
             if (minOffset <= 0
                 && !this.brokerController.getMessageStore().checkInDiskByConsumeOffset(
-                requestHeader.getTopic(), requestHeader.getQueueId(), 0)) {
+                requestHeader.getTopic(), requestHeader.getQueueId(), 0)) {//minOffset<=0，并且0位置点消息如果没有swap到磁盘（在内存），则返回的offset设置为0
                 responseHeader.setOffset(0L);
                 response.setCode(ResponseCode.SUCCESS);
                 response.setRemark(null);
